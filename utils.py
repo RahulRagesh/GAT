@@ -128,42 +128,17 @@ def normalize_adj(adj):
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
     return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
 
-
 def preprocess_adj(adj):
     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
     adj_normalized = normalize_adj(adj + sp.eye(adj.shape[0]))
     return sparse_to_tuple(adj_normalized)
 
-
-def construct_feed_dict(features, support, labels, labels_mask, placeholders):
+def construct_feed_dict(features, adj, labels, labels_mask, placeholders):
     """Construct feed dictionary."""
     feed_dict = dict()
     feed_dict.update({placeholders['labels']: labels})
     feed_dict.update({placeholders['labels_mask']: labels_mask})
     feed_dict.update({placeholders['features']: features})
-    feed_dict.update({placeholders['support'][i]: support[i] for i in range(len(support))})
+    feed_dict.update({placeholders['adj']: adj})
     feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
     return feed_dict
-
-
-def chebyshev_polynomials(adj, k):
-    """Calculate Chebyshev polynomials up to order k. Return a list of sparse matrices (tuple representation)."""
-    print("Calculating Chebyshev polynomials up to order {}...".format(k))
-
-    adj_normalized = normalize_adj(adj)
-    laplacian = sp.eye(adj.shape[0]) - adj_normalized
-    largest_eigval, _ = eigsh(laplacian, 1, which='LM')
-    scaled_laplacian = (2. / largest_eigval[0]) * laplacian - sp.eye(adj.shape[0])
-
-    t_k = list()
-    t_k.append(sp.eye(adj.shape[0]))
-    t_k.append(scaled_laplacian)
-
-    def chebyshev_recurrence(t_k_minus_one, t_k_minus_two, scaled_lap):
-        s_lap = sp.csr_matrix(scaled_lap, copy=True)
-        return 2 * s_lap.dot(t_k_minus_one) - t_k_minus_two
-
-    for i in range(2, k+1):
-        t_k.append(chebyshev_recurrence(t_k[-1], t_k[-2], scaled_laplacian))
-
-    return sparse_to_tuple(t_k)
