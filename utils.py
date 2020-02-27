@@ -4,7 +4,7 @@ import networkx as nx
 import scipy.sparse as sp
 from scipy.sparse.linalg.eigen.arpack import eigsh
 import sys
-
+import time
 
 def parse_index_file(filename):
     """Parse index file."""
@@ -87,7 +87,7 @@ def load_data(dataset_str):
     y_val[val_mask, :] = labels[val_mask, :]
     y_test[test_mask, :] = labels[test_mask, :]
 
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
+    return adj, features, labels, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 
 def sparse_to_tuple(sparse_mx):
@@ -142,3 +142,29 @@ def construct_feed_dict(features, adj, labels, labels_mask, placeholders):
     feed_dict.update({placeholders['adj']: adj})
     feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
     return feed_dict
+
+
+# Define model evaluation function
+def evaluate(model, sess, features, support, labels, mask, placeholders):
+    t_test = time.time()
+    feed_dict_val = construct_feed_dict(features, support, labels, mask, placeholders)
+    outs_val = sess.run([model.loss, model.accuracy], feed_dict=feed_dict_val)
+    return outs_val[0], outs_val[1], (time.time() - t_test)
+
+
+def model_trial_log_callback(study, trial):
+    if trial.number%10 == 0:
+        print('\n-----------------------------------------------------------')
+        print('-----------------------------------------------------------')
+        best_trial = study.best_trial
+        print('BEST TRIAL SO FAR N0 - ', best_trial.number)
+        print('Train Accuracy       - ', best_trial.user_attrs['Train Accuracy'])
+        print('Val Accuracy         - ', best_trial.user_attrs['Val Accuracy'])
+        print('Test Accuracy        - ', best_trial.user_attrs['Test Accuracy'])
+        print('Unlabeled Accuracy   - ', best_trial.user_attrs['Unlabeled Accuracy'])
+        print()
+        for key, value in trial.params.items():
+            print("%s - %f"%(key,value))
+        print('-----------------------------------------------------------')
+        print('-----------------------------------------------------------\n')
+

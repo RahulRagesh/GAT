@@ -1,23 +1,6 @@
 from inits import *
 import tensorflow as tf
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
-
-# global unique layer ID dictionary for layer name assignment
-_LAYER_UIDS = {}
-
-
-def get_layer_uid(layer_name=''):
-    """Helper function, assigns unique layer IDs."""
-    if layer_name not in _LAYER_UIDS:
-        _LAYER_UIDS[layer_name] = 1
-        return 1
-    else:
-        _LAYER_UIDS[layer_name] += 1
-        return _LAYER_UIDS[layer_name]
-
-
 def sparse_dropout(x, keep_prob, noise_shape):
     """Dropout for sparse tensors."""
     random_tensor = keep_prob
@@ -52,13 +35,13 @@ class Layer(object):
     """
 
     def __init__(self, **kwargs):
-        allowed_kwargs = {'name', 'logging','num_heads','average_heads'}
+        allowed_kwargs = {'name', 'logging','parent_model','num_heads','average_heads'}
         for kwarg in kwargs.keys():
             assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
         if not name:
             layer = self.__class__.__name__.lower()
-            name = layer + '_' + str(get_layer_uid(layer))
+            name = layer + '_' + str(kwargs['parent_model'].get_layer_uid(layer))
         self.name = name
         self.vars = {}
         logging = kwargs.get('logging', False)
@@ -139,7 +122,7 @@ class GraphAttention(Layer):
        
         attention_coefficients = tf.nn.leaky_relu(attention_coefficients, alpha=0.2)
         attention_coefficients = tf.reshape(attention_coefficients, (-1,))
-        attention_coefficients = tf.nn.dropout(attention_coefficients, 1-self.attention_dropout)
+        #attention_coefficients = tf.nn.dropout(attention_coefficients, 1-self.attention_dropout)
         
         attention_matrix = tf.SparseTensor(indices=indices,values=attention_coefficients,dense_shape=self.adj.dense_shape)
         attention_matrix = tf.sparse_softmax(attention_matrix)
