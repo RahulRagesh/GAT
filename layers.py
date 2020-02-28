@@ -96,18 +96,13 @@ class GraphAttention(Layer):
         indices = self.adj.indices 
         pairwise_features = tf.concat([tf.gather(features,indices[:,0]),tf.gather(features,indices[:,1])],axis=1)
         attention_coefficients = tf.matmul(pairwise_features, self.vars['attention_weights_'+str(head)])
-       
         if self.attention_bias:
             attention_coefficients = attention_coefficients + self.vars['attention_bias_'+str(head)]
-       
         attention_coefficients = tf.nn.leaky_relu(attention_coefficients, alpha=0.2)
         attention_coefficients = tf.reshape(attention_coefficients, (-1,))
-        
         attention_matrix = tf.SparseTensor(indices=indices,values=attention_coefficients,dense_shape=self.adj.dense_shape)
         attention_matrix = tf.sparse_reorder(attention_matrix)
-        
         attention_matrix = tf.sparse_softmax(attention_matrix)
-        
         return  attention_matrix
 
     def _call(self, inputs):

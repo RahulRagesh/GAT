@@ -47,7 +47,21 @@ class Model(object):
         self._loss()
         self._accuracy()
 
+        # Joint Optimzer for Attention and Model Parameters
         self.opt_op = self.optimizer.minimize(self.loss)
+        
+        #####################################################
+        # Uncomment these optimizers for Alternate Optimization 
+        # of Attention and Model Parameters 
+        #####################################################
+        '''
+        attention_variables = tf.get_collection('ATTENTION_WEIGHTS', scope=self.name)
+        self.attention_op = self.optimizer.minimize(self.loss, var_list=attention_variables)
+
+        model_variables = tf.get_collection('MODEL_WEIGHTS', scope=self.name)
+        self.model_op = self.optimizer.minimize(self.loss, var_list=model_variables)
+        '''
+        #####################################################
 
     def get_layer_uid(self,layer_name=''):
         """Helper function, assigns unique layer IDs."""

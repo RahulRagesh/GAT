@@ -183,3 +183,10 @@ def get_best_trial(study):
     best_val_indices = np.array(np.argwhere(val_accs == best_val).reshape(-1))
     best_index = best_val_indices[np.argmax(test_accs[best_val_indices]).reshape((-1))[0]]
     return trials[best_index]
+
+def sparse_tensor_to_coo(sp_t):
+    values = sp_t.values
+    row = sp_t.indices[:,0]
+    col = sp_t.indices[:,1]
+    shape = sp_t.dense_shape
+    return sp.coo_matrix((values,(row,col)),shape)

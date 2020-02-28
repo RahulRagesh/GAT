@@ -48,22 +48,28 @@ class TuneGAT():
         ###################################################################################################
         self.configs = {}
         self.configs['seed'] = self.seed
-
+        
+        ################################################################
+        # Initialize Hyperparameters for search
+        # Comment This block when specifying hyperparameters
         self.configs['learning_rate'] = trial.suggest_uniform('learning_rate',0,1)
         self.configs['weight_decay'] = trial.suggest_uniform('weight_decay',0,1)
         self.configs['model_dropout'] = trial.suggest_uniform('model_dropout',0,1)
         self.configs['attention_dropout'] = trial.suggest_uniform('attention_dropout',0,1)
+        ################################################################
+
         '''
-        self.configs['hidden_dims'] = trial.suggest_categorical('hidden_dims', [4, 8, 16])
-        self.configs['num_heads'] = trial.suggest_int('num_heads', 1, 10)
+        ################################################################
+        # Specifying hyperparamters
+        # Comment this block when searching for hyperparameters
+        # Set n_trials to 1
+        self.configs['learning_rate'] = 0.005
+        self.configs['weight_decay'] = 5e-4
+        self.configs['model_dropout'] = 0.6
+        self.configs['attention_dropout'] = 0.6
+        ################################################################
         '''
         
-        '''
-        self.configs['learning_rate'] = 0.023314
-        self.configs['weight_decay'] = 0.001944
-        self.configs['model_dropout'] = 0.190122
-        self.configs['attention_dropout'] = 0.928801
-        '''
         self.configs['hidden_dims'] = 8
         self.configs['num_heads'] = 8
         self.configs['num_heads_output'] = 1
@@ -93,7 +99,7 @@ class TuneGAT():
 
             # Create model
             self.model = GAT(self.configs, self.placeholders, input_dim=self.features[2][1], logging=True)
-            
+
             # Init variables
             sess.run(tf.global_variables_initializer())
 
@@ -132,20 +138,22 @@ class TuneGAT():
                     trial.set_user_attr('Unlabeled Accuracy', unlabeled_acc)
                     trial.set_user_attr('Unlabeled Loss', unlabeled_loss)   
                     
+                    '''
                     #############################################################################################################
                     #  Fetch Attention Weights to analyze
                     #############################################################################################################
-                    '''
                     feed_dict.update({self.placeholders['model_dropout']: 0.})
                     feed_dict.update({self.placeholders['attention_dropout']: 0.})
                     
                     layer_1_attention_matrices = [sess.run(self.model.layers[0].attention_matrices[i], feed_dict=feed_dict) for i in range(self.configs['num_heads'])]
+                    layer_1_attention_matrices = [sparse_tensor_to_coo(sp_mat) for sp_mat in layer_1_attention_matrices]
                     trial.set_user_attr('layer_1_attention_matrices', layer_1_attention_matrices)   
                     
                     layer_2_attention_matrices = [sess.run(self.model.layers[1].attention_matrices[i], feed_dict=feed_dict) for i in range(self.configs['num_heads_output'])]
+                    layer_2_attention_matrices = [sparse_tensor_to_coo(sp_mat) for sp_mat in layer_2_attention_matrices]                    
                     trial.set_user_attr('layer_2_attention_matrices', layer_2_attention_matrices)   
-                    '''
                     #############################################################################################################                    
+                    '''
                 else:
                     patience_count = patience_count + 1 
 
@@ -189,3 +197,6 @@ print('Unlabeled Loss      - %0.04f'%(trial.user_attrs['Unlabeled Loss']))
 
 model_df = model_study.trials_dataframe()
 model_df.to_csv('config_metrics_%s.csv'%dataset,index=False)
+
+# To access attention weights, uncomment the attention section above  
+# and use trial.user_attrs['layer_1_attention_matrices']
