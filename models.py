@@ -3,16 +3,11 @@ from metrics import *
 
 class Model(object):
     def __init__(self, **kwargs):
-        allowed_kwargs = {'name', 'logging','num_heads'}
-        for kwarg in kwargs.keys():
-            assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
         if not name:
             name = self.__class__.__name__.lower()
         self.name = name
 
-        logging = kwargs.get('logging', False)
-        self.logging = logging
         self._LAYER_UIDS = {}
 
         self.vars = {}
@@ -95,7 +90,7 @@ class GAT(Model):
         self.input_dim = input_dim
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
-        
+        self.seed = configs['seed']
         self.optimizer = tf.train.AdamOptimizer(learning_rate=configs['learning_rate'])
         self.num_heads = configs['num_heads']
         self.build()
@@ -108,8 +103,10 @@ class GAT(Model):
                     self.loss += self.configs['weight_decay'] * tf.nn.l2_loss(var)
 
         # Cross entropy error
-        self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
+        self.pred_error = masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
                                                   self.placeholders['labels_mask'])
+
+        self.loss += self.pred_error
 
     def _accuracy(self):
         self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
@@ -121,28 +118,24 @@ class GAT(Model):
                                             output_dim=self.configs['hidden_dims'],
                                             num_heads = self.num_heads,
                                             average_heads=False,
-                                            sparse_inputs=True,
                                             act=tf.nn.elu,
                                             placeholders=self.placeholders,
                                             model_dropout=True,
                                             attention_dropout=True,
                                             bias=True,
                                             attention_bias=True,
-                                            logging=self.logging,
                                             parent_model=self))
 
         self.layers.append(GraphAttention(input_dim=self.configs['hidden_dims']*self.num_heads,
                                             output_dim=self.output_dim,
                                             num_heads=1,
                                             average_heads=True,
-                                            sparse_inputs=False,
                                             act=lambda x: x,
                                             placeholders=self.placeholders,
                                             model_dropout=True,
                                             attention_dropout=True,
                                             bias=True,
                                             attention_bias=True,
-                                            logging=self.logging,
                                             parent_model=self))
 
     def predict(self):

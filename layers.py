@@ -1,18 +1,19 @@
 from inits import *
 import tensorflow as tf
 
-def sparse_dropout(x, keep_prob, noise_shape):
-    """Dropout for sparse tensors."""
-    random_tensor = keep_prob
-    random_tensor += tf.random_uniform(noise_shape)
-    dropout_mask = tf.cast(tf.floor(random_tensor), dtype=tf.bool)
-    pre_out = tf.sparse_retain(x, dropout_mask)
-    return pre_out * (1./keep_prob)
+def dropout(x, keep_prob, seed=123):
+    if isinstance(x, tf.SparseTensor):
+        values = x.values 
+        values = tf.nn.dropout(values, keep_prob, seed=seed)
+        res = tf.SparseTensor(x.indices, values, x.dense_shape)
+    else:
+        res = tf.nn.dropout(x, keep_prob, seed=seed)
+    return res
 
 
-def dot(x, y, sparse=False):
+def dot(x, y):
     """Wrapper for tf.matmul (sparse vs dense)."""
-    if sparse:
+    if isinstance(x, tf.SparseTensor):
         res = tf.sparse_tensor_dense_matmul(x, y)
     else:
         res = tf.matmul(x, y)
@@ -35,9 +36,6 @@ class Layer(object):
     """
 
     def __init__(self, **kwargs):
-        allowed_kwargs = {'name', 'logging','parent_model','num_heads','average_heads'}
-        for kwarg in kwargs.keys():
-            assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
         if not name:
             layer = self.__class__.__name__.lower()
@@ -53,51 +51,36 @@ class Layer(object):
 
     def __call__(self, inputs):
         with tf.name_scope(self.name):
-            if self.logging and not self.sparse_inputs:
-                tf.summary.histogram(self.name + '/inputs', inputs)
             outputs = self._call(inputs)
-            if self.logging:
-                tf.summary.histogram(self.name + '/outputs', outputs)
             return outputs
-
-    def _log_vars(self):
-        for var in self.vars:
-            tf.summary.histogram(self.name + '/vars/' + var, self.vars[var])
 
 class GraphAttention(Layer):
     """Graph convolution layer."""
     def __init__(self, input_dim, output_dim, placeholders, model_dropout, attention_dropout,
-                 sparse_inputs=False, act=tf.nn.relu, bias=False, attention_bias=False,
-                 featureless=False, **kwargs):
+                 act=tf.nn.relu, bias=False, attention_bias=False, **kwargs):
         super(GraphAttention, self).__init__(**kwargs)
 
+        self.seed = kwargs['parent_model'].seed
+        self.act = act
+
         self.adj = placeholders['adj']
-        
+       
         self.model_dropout = placeholders['model_dropout'] if model_dropout else 0.
         self.bias = bias
 
         self.attention_dropout = placeholders['attention_dropout'] if attention_dropout else 0.
         self.attention_bias = attention_bias
+
         self.num_heads = kwargs.get('num_heads',1)
-
-        self.sparse_inputs = sparse_inputs
-        self.featureless = featureless
-        self.act = act
-
         self.average_heads = kwargs.get('average_heads',False)
-
-        # helper variable for sparse dropout
-        self.num_features_nonzero = placeholders['num_features_nonzero']
 
         with tf.variable_scope(self.name + '_vars'):
             for i in range(self.num_heads):
-                self.vars['encoder_weights_' + str(i)] = glorot([input_dim, output_dim],
-                                                        name='encoder_weights_' + str(i))
+                self.vars['encoder_weights_' + str(i)] = glorot([input_dim, output_dim], name='encoder_weights_' + str(i), seed=self.seed)
                 tf.add_to_collection('MODEL_WEIGHTS', self.vars['encoder_weights_' + str(i)])
 
 
-                self.vars['attention_weights_'+str(i)] = glorot([2*output_dim, 1],
-                                                        name='attention_weights_' + str(i))
+                self.vars['attention_weights_'+str(i)] = glorot([2*output_dim, 1], name='attention_weights_' + str(i), seed=self.seed)
                 tf.add_to_collection('ATTENTION_WEIGHTS', self.vars['attention_weights_' + str(i)])
 
                 if self.attention_bias:
@@ -109,9 +92,6 @@ class GraphAttention(Layer):
                 self.vars['model_bias'] = zeros([output_dim*self.num_heads], name='model_bias')
                 tf.add_to_collection('MODEL_WEIGHTS', self.vars['model_bias'])
 
-        if self.logging:
-            self._log_vars()
-
     def get_attention_coefficients(self, features, head):
         indices = self.adj.indices 
         pairwise_features = tf.concat([tf.gather(features,indices[:,0]),tf.gather(features,indices[:,1])],axis=1)
@@ -122,31 +102,28 @@ class GraphAttention(Layer):
        
         attention_coefficients = tf.nn.leaky_relu(attention_coefficients, alpha=0.2)
         attention_coefficients = tf.reshape(attention_coefficients, (-1,))
-        #attention_coefficients = tf.nn.dropout(attention_coefficients, 1-self.attention_dropout)
         
         attention_matrix = tf.SparseTensor(indices=indices,values=attention_coefficients,dense_shape=self.adj.dense_shape)
+        attention_matrix = tf.sparse_reorder(attention_matrix)
+        
         attention_matrix = tf.sparse_softmax(attention_matrix)
         
         return  attention_matrix
 
     def _call(self, inputs):
         x = inputs
-
-        # dropout
-        if self.sparse_inputs:
-            x = sparse_dropout(x, 1-self.model_dropout, self.num_features_nonzero)
-        else:
-            x = tf.nn.dropout(x, 1-self.model_dropout)
+        x = dropout(x, 1-self.model_dropout)
 
         self.attention_matrices = list()
         self.head_outputs = list()
         for i in range(self.num_heads):
-            transformed_features = dot(x, self.vars['encoder_weights_' + str(i)], sparse=self.sparse_inputs)
+            transformed_features = dot(x, self.vars['encoder_weights_' + str(i)])
             
             attention_matrix = self.get_attention_coefficients(transformed_features, i)
+            attention_matrix = dropout(attention_matrix, 1-self.attention_dropout)
             self.attention_matrices.append(attention_matrix)
+            head_output = dot(self.attention_matrices[-1], transformed_features)
             
-            head_output = dot(attention_matrix, transformed_features, sparse=True)
             if not self.average_heads:
                 head_output = self.act(head_output)
 
