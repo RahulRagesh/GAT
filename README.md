@@ -9,7 +9,7 @@ Optuna (https://optuna.org/) is used for hyperparameter search. The hyperparamet
 ## Extras
 * There is a commented out code snippet to retrive the attention weights. 
 * The code is also setup to support alternate optimization of attention weights and model weights. 
-* On successful execution, a csv file with all the configuration and corresponding metrics will be dumped.
+* On successful execution, a csv file with all the configurations and corresponding metrics will be dumped.
 
 This repository is heavily borrowed from https://github.com/tkipf/gcn. 
  
