@@ -7,7 +7,7 @@ Petar Veličković, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro L
 Optuna (https://optuna.org/) is used for hyperparameter search. The hyperparameters set using ```trial.suggest*``` in the ```__call__``` method of ```TuneGAT``` class are searched. To run for a single configuration, all the hyperparameters have to be manually specified while setting ```n_trials=1```. 
 
 ## Extras
-* There is a commented out code snippet to retrive the attention weights. 
+* There is a commented out code snippet to retrieve the attention weights. 
 * The code is also setup to support alternate optimization of attention weights and model weights. 
 * On successful execution, a csv file with all the configurations and corresponding metrics will be dumped.
 
