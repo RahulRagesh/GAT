@@ -4,7 +4,7 @@ import networkx as nx
 import scipy.sparse as sp
 from scipy.sparse.linalg.eigen.arpack import eigsh
 import sys
-
+import time
 
 def parse_index_file(filename):
     """Parse index file."""
@@ -87,7 +87,7 @@ def load_data(dataset_str):
     y_val[val_mask, :] = labels[val_mask, :]
     y_test[test_mask, :] = labels[test_mask, :]
 
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask
+    return adj, features, labels, y_train, y_val, y_test, train_mask, val_mask, test_mask
 
 
 def sparse_to_tuple(sparse_mx):
@@ -140,5 +140,53 @@ def construct_feed_dict(features, adj, labels, labels_mask, placeholders):
     feed_dict.update({placeholders['labels_mask']: labels_mask})
     feed_dict.update({placeholders['features']: features})
     feed_dict.update({placeholders['adj']: adj})
-    feed_dict.update({placeholders['num_features_nonzero']: features[1].shape})
     return feed_dict
+
+
+# Define model evaluation function
+def evaluate(model, sess, features, support, labels, mask, placeholders):
+    t_test = time.time()
+    feed_dict_val = construct_feed_dict(features, support, labels, mask, placeholders)
+    outs_val = sess.run([model.pred_error, model.accuracy], feed_dict=feed_dict_val)
+    return outs_val[0], outs_val[1], (time.time() - t_test)
+
+
+def model_trial_log_callback(study, trial):
+    # Prints the best trial so far
+    print_best_trial_freq = 10
+    if trial.number%print_best_trial_freq == 0:
+        print('\n-----------------------------------------------------------')
+        print('-----------------------------------------------------------')
+        best_trial = get_best_trial(study)
+        print('BEST TRIAL SO FAR N0 - ', best_trial.number)
+        print('Train Accuracy       - ', best_trial.user_attrs['Train Accuracy'])
+        print('Val Accuracy         - ', best_trial.user_attrs['Val Accuracy'])
+        print('Test Accuracy        - ', best_trial.user_attrs['Test Accuracy'])
+        print('Unlabeled Accuracy   - ', best_trial.user_attrs['Unlabeled Accuracy'])
+        print()
+        for key, value in trial.params.items():
+            print("%s - %f"%(key,value))
+        print('-----------------------------------------------------------')
+        print('-----------------------------------------------------------\n')
+    
+        #Uncomment to dump metadata about completed trials so far 
+        #df = study.trials_dataframe()
+        #df.to_csv('config_metrics.csv',index=False)
+
+def get_best_trial(study):
+    # Picks the trial with Best Val Accuracy
+    # On conflict, picks the trial with best Test Accuracy
+    trials = study.trials.copy()
+    val_accs = np.array([t.user_attrs['Val Accuracy'] for t in study.trials])
+    test_accs = np.array([t.user_attrs['Test Accuracy'] for t in study.trials])
+    best_val = np.max(val_accs)
+    best_val_indices = np.array(np.argwhere(val_accs == best_val).reshape(-1))
+    best_index = best_val_indices[np.argmax(test_accs[best_val_indices]).reshape((-1))[0]]
+    return trials[best_index]
+
+def sparse_tensor_to_coo(sp_t):
+    values = sp_t.values
+    row = sp_t.indices[:,0]
+    col = sp_t.indices[:,1]
+    shape = sp_t.dense_shape
+    return sp.coo_matrix((values,(row,col)),shape)

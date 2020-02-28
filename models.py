@@ -1,22 +1,14 @@
 from layers import *
 from metrics import *
 
-flags = tf.app.flags
-FLAGS = flags.FLAGS
-
-
 class Model(object):
     def __init__(self, **kwargs):
-        allowed_kwargs = {'name', 'logging','num_heads'}
-        for kwarg in kwargs.keys():
-            assert kwarg in allowed_kwargs, 'Invalid keyword argument: ' + kwarg
         name = kwargs.get('name')
         if not name:
             name = self.__class__.__name__.lower()
         self.name = name
 
-        logging = kwargs.get('logging', False)
-        self.logging = logging
+        self._LAYER_UIDS = {}
 
         self.vars = {}
         self.placeholders = {}
@@ -55,7 +47,30 @@ class Model(object):
         self._loss()
         self._accuracy()
 
+        # Joint Optimzer for Attention and Model Parameters
         self.opt_op = self.optimizer.minimize(self.loss)
+        
+        #####################################################
+        # Uncomment these optimizers for Alternate Optimization 
+        # of Attention and Model Parameters 
+        #####################################################
+        '''
+        attention_variables = tf.get_collection('ATTENTION_WEIGHTS', scope=self.name)
+        self.attention_op = self.optimizer.minimize(self.loss, var_list=attention_variables)
+
+        model_variables = tf.get_collection('MODEL_WEIGHTS', scope=self.name)
+        self.model_op = self.optimizer.minimize(self.loss, var_list=model_variables)
+        '''
+        #####################################################
+
+    def get_layer_uid(self,layer_name=''):
+        """Helper function, assigns unique layer IDs."""
+        if layer_name not in self._LAYER_UIDS:
+            self._LAYER_UIDS[layer_name] = 1
+            return 1
+        else:
+            self._LAYER_UIDS[layer_name] += 1
+            return self._LAYER_UIDS[layer_name]
 
     def predict(self):
         pass
@@ -82,28 +97,30 @@ class Model(object):
         print("Model restored from file: %s" % save_path)
 
 class GAT(Model):
-    def __init__(self, placeholders, input_dim, **kwargs):
+    def __init__(self, configs, placeholders, input_dim, **kwargs):
         super(GAT, self).__init__(**kwargs)
-
+        self.configs = configs
         self.inputs = placeholders['features']
         self.input_dim = input_dim
-        # self.input_dim = self.inputs.get_shape().as_list()[1]  # To be supported in future Tensorflow versions
         self.output_dim = placeholders['labels'].get_shape().as_list()[1]
         self.placeholders = placeholders
-        
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
-        self.num_heads = kwargs.get('num_heads',1)
+        self.seed = configs['seed']
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=configs['learning_rate'])
+        self.num_heads = configs['num_heads']
         self.build()
 
     def _loss(self):
         # Weight decay loss
         for layer in self.layers:
             for var in layer.vars.values():
-                self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
+                if 'weight' in var.name:
+                    self.loss += self.configs['weight_decay'] * tf.nn.l2_loss(var)
 
         # Cross entropy error
-        self.loss += masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
+        self.pred_error = masked_softmax_cross_entropy(self.outputs, self.placeholders['labels'],
                                                   self.placeholders['labels_mask'])
+
+        self.loss += self.pred_error
 
     def _accuracy(self):
         self.accuracy = masked_accuracy(self.outputs, self.placeholders['labels'],
@@ -112,30 +129,28 @@ class GAT(Model):
     def _build(self):
 
         self.layers.append(GraphAttention(input_dim=self.input_dim,
-                                            output_dim=FLAGS.hidden1,
+                                            output_dim=self.configs['hidden_dims'],
                                             num_heads = self.num_heads,
                                             average_heads=False,
-                                            sparse_inputs=True,
                                             act=tf.nn.elu,
                                             placeholders=self.placeholders,
                                             model_dropout=True,
                                             attention_dropout=True,
                                             bias=True,
                                             attention_bias=True,
-                                            logging=self.logging))
+                                            parent_model=self))
 
-        self.layers.append(GraphAttention(input_dim=FLAGS.hidden1*self.num_heads,
+        self.layers.append(GraphAttention(input_dim=self.configs['hidden_dims']*self.num_heads,
                                             output_dim=self.output_dim,
                                             num_heads=1,
                                             average_heads=True,
-                                            sparse_inputs=False,
                                             act=lambda x: x,
                                             placeholders=self.placeholders,
                                             model_dropout=True,
                                             attention_dropout=True,
                                             bias=True,
                                             attention_bias=True,
-                                            logging=self.logging))
+                                            parent_model=self))
 
     def predict(self):
         return tf.nn.softmax(self.outputs)
